@@ -2306,7 +2306,8 @@ def auth_page():
     </div>
     """, unsafe_allow_html=True)
     
-    col1, col2, col3 = st.columns([1, 1, 2])
+    # Top navigation buttons - centered
+    col_spacer1, col1, col2, col_spacer2 = st.columns([2, 1, 1, 2])
     with col1:
         if st.button("🔐 SIGN IN", use_container_width=True, 
                     type="primary" if st.session_state.auth_mode == 'signin' else "secondary"):
@@ -2316,6 +2317,9 @@ def auth_page():
                     type="primary" if st.session_state.auth_mode == 'signup' else "secondary"):
             st.session_state.auth_mode = 'signup'
     
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Feature highlights
     st.markdown("""
     <div style='background: linear-gradient(135deg, #f8f9ff 0%, #e8ecff 100%);
                 border-radius: 20px; padding: 2rem; margin: 2rem 0;
@@ -2353,16 +2357,24 @@ def auth_page():
             st.markdown("""
             <div style='background: linear-gradient(135deg, #ffffff 0%, #f8f9ff 100%);
                         border-radius: 20px; padding: 2.5rem; 
-                        box-shadow: 0 10px 30px rgba(0,0,0,0.1);'>
-                <h2 style='text-align: center; margin-bottom: 1.5rem;'>🔐 Sign In</h2>
+                        box-shadow: 0 10px 30px rgba(0,0,0,0.1); margin-bottom: 2rem;'>
+                <h2 style='text-align: center; margin-bottom: 1.5rem;'>🔐 Sign In to Your Account</h2>
             </div>
             """, unsafe_allow_html=True)
             
-            with st.form("signin"):
-                username = st.text_input("👤 Username", placeholder="Enter your username")
-                password = st.text_input("🔒 Password", type="password", placeholder="Enter your password")
+            with st.form("signin_form", clear_on_submit=False):
+                username = st.text_input("👤 Username", placeholder="Enter your username", key="signin_username")
+                password = st.text_input("🔒 Password", type="password", placeholder="Enter your password", key="signin_password")
                 
-                if st.form_submit_button("🔓 Sign In", use_container_width=True):
+                col_btn1, col_btn2 = st.columns(2)
+                with col_btn1:
+                    signin_btn = st.form_submit_button("🔓 Sign In", use_container_width=True)
+                with col_btn2:
+                    if st.form_submit_button("📝 Create Account Instead", use_container_width=True):
+                        st.session_state.auth_mode = 'signup'
+                        st.rerun()
+                
+                if signin_btn:
                     if username and password:
                         success, result = signin(username, password)
                         if success:
@@ -2374,25 +2386,38 @@ def auth_page():
                     else:
                         st.error("❌ Please fill all fields")
         
-        else:
+        else:  # signup mode
             st.markdown("""
             <div style='background: linear-gradient(135deg, #ffffff 0%, #f8f9ff 100%);
                         border-radius: 20px; padding: 2.5rem; 
-                        box-shadow: 0 10px 30px rgba(0,0,0,0.1);'>
-                <h2 style='text-align: center; margin-bottom: 1.5rem;'>📝 Create Account</h2>
+                        box-shadow: 0 10px 30px rgba(0,0,0,0.1); margin-bottom: 2rem;'>
+                <h2 style='text-align: center; margin-bottom: 1.5rem;'>📝 Create Your Account</h2>
             </div>
             """, unsafe_allow_html=True)
             
-            with st.form("signup"):
-                username = st.text_input("👤 Username", placeholder="Choose a unique username")
-                password = st.text_input("🔒 Password", type="password", placeholder="Min 6 characters")
-                confirm_pass = st.text_input("🔒 Confirm Password", type="password", placeholder="Confirm password")
-                name = st.text_input("👤 Full Name", placeholder="Your full name")
-                email = st.text_input("📧 Email", placeholder="your@email.com")
-                city = st.text_input("🏙️ City", value="Mumbai")
-                referral_code_input = st.text_input("🎁 Referral Code (Optional)", placeholder="Enter referral code if you have one")
+            with st.form("signup_form", clear_on_submit=False):
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    username = st.text_input("👤 Username", placeholder="Choose a unique username", key="signup_username")
+                    password = st.text_input("🔒 Password", type="password", placeholder="Min 6 characters", key="signup_password")
+                    name = st.text_input("👤 Full Name", placeholder="Your full name", key="signup_name")
                 
-                if st.form_submit_button("🎉 Create Account", use_container_width=True):
+                with col_b:
+                    confirm_pass = st.text_input("🔒 Confirm Password", type="password", placeholder="Confirm password", key="signup_confirm")
+                    email = st.text_input("📧 Email", placeholder="your@email.com", key="signup_email")
+                    city = st.text_input("🏙️ City", value="Mumbai", key="signup_city")
+                
+                referral_code_input = st.text_input("🎁 Referral Code (Optional)", placeholder="Enter referral code if you have one", key="signup_referral")
+                
+                col_btn1, col_btn2 = st.columns(2)
+                with col_btn1:
+                    signup_btn = st.form_submit_button("🎉 Create Account", use_container_width=True)
+                with col_btn2:
+                    if st.form_submit_button("🔐 Already have account?", use_container_width=True):
+                        st.session_state.auth_mode = 'signin'
+                        st.rerun()
+                
+                if signup_btn:
                     if not all([username, password, name, email]):
                         st.error("❌ Please fill all required fields")
                     elif password != confirm_pass:
@@ -2402,14 +2427,17 @@ def auth_page():
                     else:
                         success, msg = create_user(username, password, name, email, city=city)
                         if success:
-                            st.success("✅ Account created!")
+                            st.success("✅ Account created successfully!")
+                            # Auto login
                             success, result = signin(username, password)
                             if success:
                                 st.session_state.user = result
+                                st.balloons()
                                 st.rerun()
                         else:
                             st.error(f"❌ {msg}")
     
+    # Footer
     st.markdown("""
     <div style='text-align: center; margin-top: 4rem; padding: 2rem; 
                 background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
