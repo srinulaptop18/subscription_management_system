@@ -891,6 +891,95 @@ def get_recent_speed_tests(user_id, limit=10):
         return []
 
 # ============================================================================
+# MESSAGING SYSTEM
+# ============================================================================
+
+def send_message_to_admin(user_id, subject, message):
+    """Send message from user to admin"""
+    try:
+        # Get admin user
+        admin = exec_query("SELECT id FROM users WHERE role = 'admin' LIMIT 1", fetch=True)
+        if not admin:
+            return False, "Admin not found"
+        
+        admin_id = admin[0][0]
+        
+        result = exec_query("""
+            INSERT INTO messages (sender_id, recipient_id, subject, message, is_read, created_date)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (user_id, admin_id, subject, message, 0, datetime.utcnow().isoformat()))
+        
+        return result, "Message sent to admin successfully" if result else "Failed to send message"
+    except Exception as e:
+        return False, str(e)
+
+def send_message_to_user(admin_id, user_id, subject, message, replied_to=None):
+    """Send message from admin to user"""
+    try:
+        result = exec_query("""
+            INSERT INTO messages (sender_id, recipient_id, subject, message, is_read, created_date, replied_to)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (admin_id, user_id, subject, message, 0, datetime.utcnow().isoformat(), replied_to))
+        
+        return result, "Message sent successfully" if result else "Failed to send message"
+    except Exception as e:
+        return False, str(e)
+
+def get_user_messages(user_id):
+    """Get all messages for a user"""
+    try:
+        rows = exec_query("""
+            SELECT m.*, 
+                   sender.username as sender_name, sender.role as sender_role,
+                   recipient.username as recipient_name
+            FROM messages m
+            JOIN users sender ON m.sender_id = sender.id
+            JOIN users recipient ON m.recipient_id = recipient.id
+            WHERE m.sender_id = ? OR m.recipient_id = ?
+            ORDER BY m.created_date DESC
+        """, (user_id, user_id), fetch=True)
+        return [row_to_dict(r) for r in rows] if rows else []
+    except:
+        return []
+
+def get_admin_messages():
+    """Get all messages sent to admin"""
+    try:
+        rows = exec_query("""
+            SELECT m.*, 
+                   sender.username as sender_name, sender.email as sender_email,
+                   recipient.username as recipient_name
+            FROM messages m
+            JOIN users sender ON m.sender_id = sender.id
+            JOIN users recipient ON m.recipient_id = recipient.id
+            JOIN users admin ON m.recipient_id = admin.id
+            WHERE admin.role = 'admin'
+            ORDER BY m.is_read ASC, m.created_date DESC
+        """, fetch=True)
+        return [row_to_dict(r) for r in rows] if rows else []
+    except:
+        return []
+
+def mark_message_as_read(message_id):
+    """Mark message as read"""
+    try:
+        result = exec_query("UPDATE messages SET is_read = 1 WHERE id = ?", (message_id,))
+        return result
+    except:
+        return False
+
+def get_unread_messages_count(user_id):
+    """Get count of unread messages"""
+    try:
+        result = exec_query(
+            "SELECT COUNT(*) FROM messages WHERE recipient_id = ? AND is_read = 0",
+            (user_id,), fetch=True
+        )
+        return result[0][0] if result else 0
+    except:
+        return 0
+
+# ============================================================================
 # NOTIFICATION SYSTEM
 # ============================================================================
 
@@ -1261,7 +1350,7 @@ def user_dashboard(user):
     if 'user_section' not in st.session_state:
         st.session_state.user_section = 'current_plan'
     
-    col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
+    col1, col2, col3, col4, col5, col6, col7, col8 = st.columns(8)
     
     sections = [
         (col1, 'current_plan', '📶 Plan'),
@@ -1271,6 +1360,7 @@ def user_dashboard(user):
         (col5, 'history', '📜 History'),
         (col6, 'profile', '👤 Profile'),
         (col7, 'support', '🎫 Support'),
+        (col8, 'messages', '💬 Messages'),
     ]
     
     for col, section, label in sections:
@@ -1281,9 +1371,17 @@ def user_dashboard(user):
     
     # Notifications button
     unread_count = get_unread_count(user['id'])
-    if st.button(f"📬 Notifications ({unread_count})" if unread_count > 0 else "📬 Notifications", 
-                 type="primary" if st.session_state.user_section == 'notifications' else "secondary"):
-        st.session_state.user_section = 'notifications'
+    unread_msg_count = get_unread_messages_count(user['id'])
+    
+    col_notif, col_msg = st.columns(2)
+    with col_notif:
+        if st.button(f"📬 Notifications ({unread_count})" if unread_count > 0 else "📬 Notifications", 
+                     type="primary" if st.session_state.user_section == 'notifications' else "secondary"):
+            st.session_state.user_section = 'notifications'
+    
+    with col_msg:
+        if unread_msg_count > 0:
+            st.markdown(f"**✉️ {unread_msg_count} unread messages**")
     
     st.markdown("---")
     
@@ -1706,6 +1804,108 @@ def user_dashboard(user):
                     st.write(f"**Status:** {ticket['status']}")
                     st.write(f"**Description:** {ticket['description']}")
     
+    elif st.session_state.user_section == 'messages':
+        st.markdown("## 💬 Messages with Admin")
+        
+        tab1, tab2 = st.tabs(["📤 Send Message", "📥 Inbox"])
+        
+        with tab1:
+            st.markdown("### 📤 Send Message to Admin")
+            
+            with st.form("send_message_form"):
+                subject = st.text_input("📝 Subject", placeholder="e.g., Billing Question")
+                message = st.text_area("💬 Message", placeholder="Write your message here...", height=200)
+                
+                if st.form_submit_button("📤 Send Message", use_container_width=True):
+                    if subject and message:
+                        success, msg = send_message_to_admin(user['id'], subject, message)
+                        if success:
+                            st.success(f"✅ {msg}")
+                            st.balloons()
+                        else:
+                            st.error(f"❌ {msg}")
+                    else:
+                        st.error("❌ Please fill all fields")
+        
+        with tab2:
+            st.markdown("### 📥 Your Messages")
+            
+            messages = get_user_messages(user['id'])
+            
+            if messages:
+                # Separate sent and received
+                sent_messages = [m for m in messages if m['sender_id'] == user['id']]
+                received_messages = [m for m in messages if m['recipient_id'] == user['id']]
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("📧 Total", len(messages))
+                with col2:
+                    st.metric("📤 Sent", len(sent_messages))
+                with col3:
+                    st.metric("📥 Received", len(received_messages))
+                
+                st.markdown("---")
+                
+                # Filter options
+                filter_option = st.radio("Filter", ["All", "Sent", "Received"], horizontal=True)
+                
+                if filter_option == "Sent":
+                    display_messages = sent_messages
+                elif filter_option == "Received":
+                    display_messages = received_messages
+                else:
+                    display_messages = messages
+                
+                if display_messages:
+                    for msg in display_messages:
+                        is_sent = msg['sender_id'] == user['id']
+                        is_unread = not msg['is_read'] and not is_sent
+                        
+                        # Color coding
+                        if is_sent:
+                            border_color = "#667eea"
+                            icon = "📤"
+                            direction = f"To: {msg['recipient_name']}"
+                        else:
+                            border_color = "#10b981" if is_unread else "#6b7280"
+                            icon = "📥"
+                            direction = f"From: {msg['sender_name']}"
+                        
+                        read_badge = "🆕" if is_unread else "✓"
+                        
+                        with st.expander(f"{read_badge} {icon} {msg['subject']} - {direction}"):
+                            col_info, col_date = st.columns([3, 1])
+                            with col_info:
+                                st.write(f"**{direction}**")
+                                if msg['sender_role'] == 'admin':
+                                    st.markdown("👑 **Admin Message**")
+                            with col_date:
+                                st.write(f"📅 {msg['created_date'][:10]}")
+                            
+                            st.markdown("---")
+                            st.markdown(f"**Message:**")
+                            st.markdown(f"""
+                            <div style='background: #f8f9fa; padding: 1rem; border-radius: 8px;
+                                        border-left: 4px solid {border_color};'>
+                                {msg['message']}
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            # Mark as read button for received unread messages
+                            if is_unread:
+                                if st.button(f"✓ Mark as Read", key=f"msg_read_{msg['id']}"):
+                                    mark_message_as_read(msg['id'])
+                                    st.rerun()
+                else:
+                    st.info(f"ℹ️ No {filter_option.lower()} messages")
+            else:
+                st.markdown("""
+                <div class="alert-box alert-info">
+                    <p>📭 No messages yet. Send a message to admin to get started!</p>
+                </div>
+                """, unsafe_allow_html=True)
+    
     elif st.session_state.user_section == 'notifications':
         st.markdown("## 📬 Your Notifications")
         
@@ -1779,7 +1979,7 @@ def admin_dashboard(user):
     if 'admin_section' not in st.session_state:
         st.session_state.admin_section = 'overview'
     
-    col1, col2, col3, col4, col5 = st.columns(5)
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     
     sections = [
         (col1, 'overview', '📊 Overview'),
@@ -1787,6 +1987,7 @@ def admin_dashboard(user):
         (col3, 'plans', '📋 Plans'),
         (col4, 'tickets', '🎫 Tickets'),
         (col5, 'notifications', '📢 Notify'),
+        (col6, 'messages', '💬 Messages'),
     ]
     
     for col, section, label in sections:
@@ -2495,6 +2696,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-""" Viswesh
-DT LAB"""
